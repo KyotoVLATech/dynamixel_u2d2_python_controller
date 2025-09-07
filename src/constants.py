@@ -10,6 +10,9 @@ class ControlTable:
     ADDR_GOAL_POSITION = 116
     ADDR_PRESENT_POSITION = 132
     ADDR_OPERATING_MODE = 11
+    # --- 以下を追記 ---
+    ADDR_GOAL_VELOCITY = 104
+    ADDR_PRESENT_VELOCITY = 128
 
 
 class OperatingMode(enum.Enum):

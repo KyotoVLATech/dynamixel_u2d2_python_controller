@@ -1,5 +1,6 @@
 import time
 
+from src.constants import OperatingMode  # OperatingModeをインポート
 from src.constants import (
     DXL_MAXIMUM_POSITION_VALUE,
     DXL_MINIMUM_POSITION_VALUE,
@@ -8,35 +9,35 @@ from src.constants import (
 from src.dynamixel import Dynamixel
 
 # --- 設定項目 ---
-# ご自身の環境に合わせて変更してください
-DEVICENAME = "COM13"  # Linuxの場合は"/dev/ttyUSB0"など
-DXL_ID = 1  # 制御するモーターのID（デフォルト値は1）
+DEVICENAME = "COM4"
+DXL_ID = 1
 # -----------------
 
 
 def main() -> None:
     """
     Dynamixelモーターを位置制御モードで動作させるサンプル。
-    with構文を使い、安全な接続・切断を保証します。
     """
     print("--- Dynamixel Position Control Sample ---")
 
     try:
-        # with構文により、ブロックを抜ける際に自動でトルクOFFと切断が呼ばれます
-        with Dynamixel(port=DEVICENAME, motor_id=DXL_ID) as motor:
+        # Dynamixelの初期化時にオペレーティングモードを指定
+        with Dynamixel(
+            port=DEVICENAME,
+            motor_id=DXL_ID,
+            operating_mode=OperatingMode.POSITION_CONTROL,
+        ) as motor:
 
             print("\n✅ Connection successful. Motor is ready to move.")
 
             goal_positions = [DXL_MINIMUM_POSITION_VALUE, DXL_MAXIMUM_POSITION_VALUE]
 
-            for i in range(5):  # 5往復させる
+            for i in range(2):
                 for goal_pos in goal_positions:
-                    # --- ステップ1: 目標位置を指令 ---
                     if not motor.set_goal_position(goal_pos):
                         print("Failed to set goal position. Exiting.")
                         return
 
-                    # --- ステップ2: 目標位置に到達するまで待機 ---
                     while True:
                         present_pos, success = motor.get_present_position()
                         if not success:
@@ -50,10 +51,8 @@ def main() -> None:
                         if abs(goal_pos - present_pos) <= DXL_MOVING_STATUS_THRESHOLD:
                             print("  -> Reached goal position.")
                             break
-
-                        time.sleep(0.1)  # CPU負荷軽減のための短い待機
-
-                    time.sleep(0.5)  # 次の動作までの待機
+                        time.sleep(0.1)
+                    time.sleep(0.5)
 
             print("\nSample sequence finished successfully.")
 
