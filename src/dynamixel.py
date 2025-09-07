@@ -25,7 +25,6 @@ logger.addHandler(stream_handler)
 
 
 class Dynamixel:
-    # --- __init__ を変更 ---
     def __init__(
         self,
         port: str,
@@ -69,6 +68,40 @@ class Dynamixel:
             return False
         return True
 
+    def _write_2byte(self, address: int, value: int) -> bool:
+        """2バイトのデータを書き込みます。"""
+        # 符号付き16bit整数に対応
+        if value < 0:
+            value = value + 65536
+
+        dxl_comm_result, dxl_error = self.packetHandler.write2ByteTxRx(
+            self.portHandler, self.motor_id, address, value
+        )
+        if dxl_comm_result != 0:
+            logger.error(self.packetHandler.getTxRxResult(dxl_comm_result))
+            return False
+        if dxl_error != 0:
+            logger.error(self.packetHandler.getRxPacketError(dxl_error))
+            return False
+        return True
+
+    def _read_2byte(self, address: int) -> tuple[int, bool]:
+        """指定したアドレスから2バイトのデータを読み取ります。"""
+        value, dxl_comm_result, dxl_error = self.packetHandler.read2ByteTxRx(
+            self.portHandler, self.motor_id, address
+        )
+        if dxl_comm_result != 0:
+            logger.error(self.packetHandler.getTxRxResult(dxl_comm_result))
+            return 0, False
+        if dxl_error != 0:
+            logger.error(self.packetHandler.getRxPacketError(dxl_error))
+            return 0, False
+
+        # 符号付き16bit整数に対応
+        if value > 32767:
+            value = value - 65536
+        return value, True
+
     def _write_4byte(self, address: int, value: int) -> bool:
         """4バイトのデータを書き込みます。"""
         # 符号付き32bit整数に対応するため、負の値の場合は変換を行う
@@ -86,7 +119,6 @@ class Dynamixel:
             return False
         return True
 
-    # --- _read_4byte を汎用化 ---
     def _read_4byte(self, address: int) -> tuple[int, bool]:
         """指定したアドレスから4バイトのデータを読み取ります。"""
         value, dxl_comm_result, dxl_error = self.packetHandler.read4ByteTxRx(
@@ -128,7 +160,6 @@ class Dynamixel:
         """現在の位置を取得します。"""
         return self._read_4byte(ControlTable.ADDR_PRESENT_POSITION)
 
-    # --- 以下を追記 ---
     def set_goal_velocity(self, velocity: int) -> bool:
         """目標速度を設定します。"""
         logger.info(f"Setting goal velocity to {velocity}")
@@ -138,9 +169,24 @@ class Dynamixel:
         """現在の速度を取得します。"""
         return self._read_4byte(ControlTable.ADDR_PRESENT_VELOCITY)
 
-    # -----------------
+    def set_goal_pwm(self, pwm: int) -> bool:
+        """目標PWMを設定します。"""
+        logger.info(f"Setting goal PWM to {pwm}")
+        return self._write_2byte(ControlTable.ADDR_GOAL_PWM, pwm)
 
-    # --- __enter__ を変更 ---
+    def get_present_pwm(self) -> tuple[int, bool]:
+        """現在のPWMを取得します。"""
+        return self._read_2byte(ControlTable.ADDR_PRESENT_PWM)
+
+    def set_goal_current(self, current: int) -> bool:
+        """目標電流を設定します。"""
+        logger.info(f"Setting goal current to {current}")
+        return self._write_2byte(ControlTable.ADDR_GOAL_CURRENT, current)
+
+    def get_present_current(self) -> tuple[int, bool]:
+        """現在の電流を取得します。"""
+        return self._read_2byte(ControlTable.ADDR_PRESENT_CURRENT)
+
     def __enter__(self) -> 'Dynamixel':
         """with構文の開始時に接続とトルクONを行います。"""
         if not self.connect():
@@ -157,13 +203,22 @@ class Dynamixel:
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """with構文の終了時にトルクOFFと切断を行います。"""
+        """with構文の終了時にモーターを停止し、トルクOFFと切断を行います。"""
         logger.info("Safely shutting down...")
-        # 速度制御モードの場合、停止させてからトルクをOFFにする
+
+        # モードに応じて安全に停止させる
         if self.operating_mode == OperatingMode.VELOCITY_CONTROL:
             self.set_goal_velocity(0)
-            time.sleep(0.1)
+        elif self.operating_mode == OperatingMode.PWM_CONTROL:
+            self.set_goal_pwm(0)
+        elif self.operating_mode in [
+            OperatingMode.CURRENT_CONTROL,
+            OperatingMode.CURRENT_BASED_POSITION_CONTROL,
+        ]:
+            # 電流モードでは0に設定して力を抜く
+            self.set_goal_current(0)
 
+        time.sleep(0.2)  # 停止命令が反映されるのを待つ
         self.disable_torque()
         time.sleep(0.1)
         self.disconnect()

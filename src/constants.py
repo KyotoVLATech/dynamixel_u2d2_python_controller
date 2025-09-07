@@ -7,12 +7,24 @@ class ControlTable:
     """
 
     ADDR_TORQUE_ENABLE = 64
+    ADDR_OPERATING_MODE = 11
+
+    # Position Control
     ADDR_GOAL_POSITION = 116
     ADDR_PRESENT_POSITION = 132
-    ADDR_OPERATING_MODE = 11
-    # --- 以下を追記 ---
+
+    # Velocity Control
     ADDR_GOAL_VELOCITY = 104
     ADDR_PRESENT_VELOCITY = 128
+
+    # --- 以下を追記 ---
+    # PWM Control
+    ADDR_GOAL_PWM = 100
+    ADDR_PRESENT_PWM = 124
+
+    # Current Control
+    ADDR_GOAL_CURRENT = 102
+    ADDR_PRESENT_CURRENT = 126
 
 
 class OperatingMode(enum.Enum):
@@ -30,14 +42,19 @@ class OperatingMode(enum.Enum):
 
 # --- Protocol Constants ---
 PROTOCOL_VERSION = 2.0
-BAUDRATE = 57600  # Dynamixelのデフォルトボーレート
+BAUDRATE = 57600
 
 # --- Torque Constants ---
 TORQUE_ENABLE = 1
 TORQUE_DISABLE = 0
 
 # --- Position Constants ---
-# XM430-W350の分解能は4096
-DXL_MINIMUM_POSITION_VALUE = 1000  # 揺動範囲の下限値
-DXL_MAXIMUM_POSITION_VALUE = 3000  # 揺動範囲の上限値
-DXL_MOVING_STATUS_THRESHOLD = 20  # この閾値以下になったら移動完了とみなす
+DXL_MINIMUM_POSITION_VALUE = 1000
+DXL_MAXIMUM_POSITION_VALUE = 3000
+DXL_MOVING_STATUS_THRESHOLD = 20
+
+# --- Default Limits (for safe sample codes) ---
+# XM430-W350のPWMリミットの初期値は885
+SAFE_PWM_VALUE = 150
+# XM430-W350の電流リミットの初期値は1193 (約3.2A)
+SAFE_CURRENT_VALUE = 40  # 約108mAに相当 (40 * 2.69mA)
