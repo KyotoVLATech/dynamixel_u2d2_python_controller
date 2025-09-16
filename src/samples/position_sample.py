@@ -1,28 +1,24 @@
+import math
 import time
 
 from src.constants import OperatingMode  # OperatingModeをインポート
-from src.constants import (
-    DXL_MAXIMUM_POSITION_VALUE,
-    DXL_MINIMUM_POSITION_VALUE,
-    DXL_MOVING_STATUS_THRESHOLD,
-)
-from src.dynamixel import Dynamixel
+from src.dynamixel import DynamixelController
 
 # --- 設定項目 ---
-DEVICENAME = "COM4"
-DXL_ID = 1
+DEVICENAME = "COM7"
+DXL_ID = 7
 # -----------------
 
 
 def main() -> None:
     """
-    Dynamixelモーターを位置制御モードで動作させるサンプル。
+    Dynamixelモーターを位置制御モードで指定されたradian角度に移動させるサンプル。
     """
-    print("--- Dynamixel Position Control Sample ---")
+    print("--- Dynamixel Position Control Sample (Radian) ---")
 
     try:
         # Dynamixelの初期化時にオペレーティングモードを指定
-        with Dynamixel(
+        with DynamixelController(
             port=DEVICENAME,
             motor_id=DXL_ID,
             operating_mode=OperatingMode.POSITION_CONTROL,
@@ -30,29 +26,38 @@ def main() -> None:
 
             print("\n✅ Connection successful. Motor is ready to move.")
 
-            goal_positions = [DXL_MINIMUM_POSITION_VALUE, DXL_MAXIMUM_POSITION_VALUE]
+            # 目標角度をradianで指定
+            goal_angles_rad = [0.0, math.pi / 2, math.pi, 3 * math.pi / 2, 2 * math.pi]
 
-            for i in range(2):
-                for goal_pos in goal_positions:
-                    if not motor.set_goal_position(goal_pos):
-                        print("Failed to set goal position. Exiting.")
-                        return
+            for angle_rad in goal_angles_rad:
+                print(
+                    f"\n🎯 Moving to {angle_rad:.3f} rad ({math.degrees(angle_rad):.1f}°)"
+                )
 
-                    while True:
-                        present_pos, success = motor.get_present_position()
-                        if not success:
-                            print("Failed to get present position.")
-                            break
+                if not motor.set_goal_position_rad(angle_rad):
+                    print("Failed to set goal position. Exiting.")
+                    return
 
-                        print(
-                            f"[ID:{DXL_ID:03d}] GoalPos:{goal_pos:03d}  PresPos:{present_pos:03d}"
-                        )
+                # 目標位置に到達するまで待機
+                while True:
+                    present_pos_rad, success = motor.get_present_position_rad()
+                    if not success:
+                        print("Failed to get present position.")
+                        break
 
-                        if abs(goal_pos - present_pos) <= DXL_MOVING_STATUS_THRESHOLD:
-                            print("  -> Reached goal position.")
-                            break
-                        time.sleep(0.1)
-                    time.sleep(0.5)
+                    print(
+                        f"[ID:{DXL_ID:03d}] Goal:{angle_rad:.3f}rad  Present:{present_pos_rad:.3f}rad"
+                    )
+
+                    # radian値での位置差を計算（約0.01rad = 0.57°の精度）
+                    if abs(angle_rad - present_pos_rad) <= 0.01:
+                        print("  -> Reached goal position.")
+                        break
+                    time.sleep(0.1)
+
+                # 3秒間待機
+                print("  ⏰ Waiting for 3 seconds...")
+                time.sleep(3.0)
 
             print("\nSample sequence finished successfully.")
 
