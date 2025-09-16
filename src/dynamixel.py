@@ -37,6 +37,10 @@ class Dynamixel:
         self.portHandler = PortHandler(self.port)
         self.packetHandler = PacketHandler(PROTOCOL_VERSION)
 
+        # Dynamixelの分解能（0-4095パルス = 0-2π rad）
+        self.pulse_per_revolution = 4096
+        self.max_pulse = 4095
+
     def connect(self) -> bool:
         """シリアルポートを開き、ボーレートを設定して接続を試みます。"""
         logger.info(f"Connecting to port {self.port} at {BAUDRATE} bps...")
@@ -169,23 +173,31 @@ class Dynamixel:
         """現在の速度を取得します。"""
         return self._read_4byte(ControlTable.ADDR_PRESENT_VELOCITY)
 
-    def set_goal_pwm(self, pwm: int) -> bool:
-        """目標PWMを設定します。"""
-        logger.info(f"Setting goal PWM to {pwm}")
-        return self._write_2byte(ControlTable.ADDR_GOAL_PWM, pwm)
+    def pulse_to_radian(self, pulse: int) -> float:
+        """パルス値をradian値に変換します."""
+        return (pulse / self.pulse_per_revolution) * 2 * 3.14159265359
 
-    def get_present_pwm(self) -> tuple[int, bool]:
-        """現在のPWMを取得します。"""
-        return self._read_2byte(ControlTable.ADDR_PRESENT_PWM)
+    def radian_to_pulse(self, radian: float) -> int:
+        """radian値をパルス値に変換します."""
+        pulse = int((radian / (2 * 3.14159265359)) * self.pulse_per_revolution)
+        # パルス値を0-4095の範囲内に制限
+        return max(0, min(self.max_pulse, pulse))
 
-    def set_goal_current(self, current: int) -> bool:
-        """目標電流を設定します。"""
-        logger.info(f"Setting goal current to {current}")
-        return self._write_2byte(ControlTable.ADDR_GOAL_CURRENT, current)
+    def set_goal_position_rad(self, position_rad: float) -> bool:
+        """目標位置をradian値で設定します."""
+        pulse_position = self.radian_to_pulse(position_rad)
+        logger.info(
+            f"Setting goal position to {position_rad:.3f} rad ({pulse_position} pulse)"
+        )
+        return self._write_4byte(ControlTable.ADDR_GOAL_POSITION, pulse_position)
 
-    def get_present_current(self) -> tuple[int, bool]:
-        """現在の電流を取得します。"""
-        return self._read_2byte(ControlTable.ADDR_PRESENT_CURRENT)
+    def get_present_position_rad(self) -> tuple[float, bool]:
+        """現在の位置をradian値で取得します."""
+        pulse_position, success = self._read_4byte(ControlTable.ADDR_PRESENT_POSITION)
+        if success:
+            radian_position = self.pulse_to_radian(pulse_position)
+            return radian_position, True
+        return 0.0, False
 
     def __enter__(self) -> 'Dynamixel':
         """with構文の開始時に接続とトルクONを行います。"""
@@ -209,14 +221,6 @@ class Dynamixel:
         # モードに応じて安全に停止させる
         if self.operating_mode == OperatingMode.VELOCITY_CONTROL:
             self.set_goal_velocity(0)
-        elif self.operating_mode == OperatingMode.PWM_CONTROL:
-            self.set_goal_pwm(0)
-        elif self.operating_mode in [
-            OperatingMode.CURRENT_CONTROL,
-            OperatingMode.CURRENT_BASED_POSITION_CONTROL,
-        ]:
-            # 電流モードでは0に設定して力を抜く
-            self.set_goal_current(0)
 
         time.sleep(0.2)  # 停止命令が反映されるのを待つ
         self.disable_torque()
