@@ -10,7 +10,7 @@ MOTOR_IDS = [
     # 5,
     # 6,
     7,
-    # 8,
+    8,
 ]  # 制御する4つのモーターID
 # -----------------
 
@@ -47,11 +47,11 @@ def main() -> None:
 
             print("✅ Connection successful. All motors are ready to move.")
 
-            # 全モーター共通の目標角度パターンを定義: 0 -> π/4 -> 0
-            target_angles = [0.0, math.pi / 4, 0.0]
+            # 全モーター共通の目標角度パターンを定義: 0 -> -π/4 -> 0
+            target_angles = [0.0, -math.pi / 4, 0.0]
             step_names = [
                 "Initial Position (0 rad)",
-                "Middle Position (π/4 rad)",
+                "Middle Position (-π/4 rad)",
                 "Return to Start (0 rad)",
             ]
 
