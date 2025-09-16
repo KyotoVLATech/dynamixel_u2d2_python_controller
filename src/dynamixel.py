@@ -10,7 +10,9 @@ from src.constants import (
     PROTOCOL_VERSION,
     TORQUE_DISABLE,
     TORQUE_ENABLE,
-    ControlTable,
+    DynamixelLimits,
+    DynamixelParams,
+    DynamixelSeries,
     OperatingMode,
 )
 
@@ -25,11 +27,19 @@ logger.addHandler(stream_handler)
 
 
 class Dynamixel:
+    def __init__(self, series: DynamixelSeries, id: int, limits: DynamixelLimits):
+        self.params = DynamixelParams(series, id)
+        self.limits = limits
+
+
+class DynamixelController:
     def __init__(
         self,
         port: str,
         motor_id: int,
         operating_mode: OperatingMode = OperatingMode.POSITION_CONTROL,
+        pulse_per_revolution: int = 4096,
+        max_pulse: int = 4095,
     ):
         self.port = port
         self.motor_id = motor_id
@@ -38,8 +48,8 @@ class Dynamixel:
         self.packetHandler = PacketHandler(PROTOCOL_VERSION)
 
         # Dynamixelの分解能（0-4095パルス = 0-2π rad）
-        self.pulse_per_revolution = 4096
-        self.max_pulse = 4095
+        self.pulse_per_revolution = pulse_per_revolution
+        self.max_pulse = max_pulse
 
     def connect(self) -> bool:
         """シリアルポートを開き、ボーレートを設定して接続を試みます。"""
@@ -199,7 +209,7 @@ class Dynamixel:
             return radian_position, True
         return 0.0, False
 
-    def __enter__(self) -> 'Dynamixel':
+    def __enter__(self) -> 'DynamixelController':
         """with構文の開始時に接続とトルクONを行います。"""
         if not self.connect():
             raise IOError("Failed to connect to Dynamixel.")

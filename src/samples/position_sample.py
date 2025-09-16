@@ -2,7 +2,7 @@ import math
 import time
 
 from src.constants import OperatingMode  # OperatingModeをインポート
-from src.dynamixel import Dynamixel
+from src.dynamixel import DynamixelController
 
 # --- 設定項目 ---
 DEVICENAME = "COM7"
@@ -18,7 +18,7 @@ def main() -> None:
 
     try:
         # Dynamixelの初期化時にオペレーティングモードを指定
-        with Dynamixel(
+        with DynamixelController(
             port=DEVICENAME,
             motor_id=DXL_ID,
             operating_mode=OperatingMode.POSITION_CONTROL,
