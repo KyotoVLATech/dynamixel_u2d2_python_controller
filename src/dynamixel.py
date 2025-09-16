@@ -5,7 +5,7 @@ from typing import Any
 
 from dynamixel_sdk import PacketHandler, PortHandler
 
-from src.constants import (
+from .constants import (
     Baudrate,
     ControlParams,
     DynamixelParams,
