@@ -45,14 +45,15 @@ class Param:
 
 
 @dataclass
-class DynamixelLimits:
-    """Dynamixelモーターの制限値"""
+class ControlParams:
+    """Dynamixelモーターの制御パラメータ"""
 
-    max_pwm: int
-    max_current: int
-    max_velocity: int
-    max_position: int
-    min_position: int
+    # リミット値
+    max_position: int = 4095
+    min_position: int = 0
+
+    # 制御パラメータ
+    offset: int = 0  # オフセット値（デフォルトは0）
 
 
 class DynamixelParams:

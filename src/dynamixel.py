@@ -10,7 +10,7 @@ from src.constants import (
     PROTOCOL_VERSION,
     TORQUE_DISABLE,
     TORQUE_ENABLE,
-    DynamixelLimits,
+    ControlParams,
     DynamixelParams,
     DynamixelSeries,
     OperatingMode,
@@ -27,9 +27,9 @@ logger.addHandler(stream_handler)
 
 
 class Dynamixel:
-    def __init__(self, series: DynamixelSeries, id: int, limits: DynamixelLimits):
-        self.params: DynamixelParams = DynamixelParams(series)
-        self.limits: DynamixelLimits = limits
+    def __init__(self, series: DynamixelSeries, id: int, param: ControlParams):
+        self.dynamixel_params: DynamixelParams = DynamixelParams(series)
+        self.control_params: ControlParams = param
         self.id: int = id
 
 
@@ -63,7 +63,7 @@ class DynamixelController:
         for motor_id in self.motors.keys():
             _, success = self._read_2byte(
                 motor_id,
-                self.motors[motor_id].params.param.ADDR_PRESENT_POSITION,
+                self.motors[motor_id].dynamixel_params.param.ADDR_PRESENT_POSITION,
             )
             if not success:
                 logger.error(f"Failed to connect to motor ID {motor_id}")
@@ -165,7 +165,7 @@ class DynamixelController:
         logger.info(f"Setting operating mode to {mode.name} for motor ID {motor_id}...")
         return self._write_1byte(
             motor_id,
-            self.motors[motor_id].params.param.ADDR_OPERATING_MODE,
+            self.motors[motor_id].dynamixel_params.param.ADDR_OPERATING_MODE,
             mode.value,
         )
 
@@ -174,7 +174,7 @@ class DynamixelController:
         logger.info(f"Enabling torque for motor ID {motor_id}...")
         return self._write_1byte(
             motor_id,
-            self.motors[motor_id].params.param.ADDR_TORQUE_ENABLE,
+            self.motors[motor_id].dynamixel_params.param.ADDR_TORQUE_ENABLE,
             TORQUE_ENABLE,
         )
 
@@ -183,7 +183,7 @@ class DynamixelController:
         logger.info(f"Disabling torque for motor ID {motor_id}...")
         return self._write_1byte(
             motor_id,
-            self.motors[motor_id].params.param.ADDR_TORQUE_ENABLE,
+            self.motors[motor_id].dynamixel_params.param.ADDR_TORQUE_ENABLE,
             TORQUE_DISABLE,
         )
 
@@ -192,23 +192,24 @@ class DynamixelController:
         logger.info(f"Setting goal position to {position} for motor ID {motor_id}")
         return self._write_4byte(
             motor_id,
-            self.motors[motor_id].params.param.ADDR_GOAL_POSITION,
-            position,
+            self.motors[motor_id].dynamixel_params.param.ADDR_GOAL_POSITION,
+            position + self.motors[motor_id].control_params.offset,
         )
 
     def get_present_position(self, motor_id: int) -> tuple[int, bool]:
         """現在の位置を取得します。"""
-        return self._read_4byte(
+        val = self._read_4byte(
             motor_id,
-            self.motors[motor_id].params.param.ADDR_PRESENT_POSITION,
+            self.motors[motor_id].dynamixel_params.param.ADDR_PRESENT_POSITION,
         )
+        return (val - self.motors[motor_id].control_params.offset, True)
 
     def set_goal_velocity(self, motor_id: int, velocity: int) -> bool:
         """目標速度を設定します。"""
         logger.info(f"Setting goal velocity to {velocity} for motor ID {motor_id}")
         return self._write_4byte(
             motor_id,
-            self.motors[motor_id].params.param.ADDR_GOAL_VELOCITY,
+            self.motors[motor_id].dynamixel_params.param.ADDR_GOAL_VELOCITY,
             velocity,
         )
 
@@ -216,7 +217,7 @@ class DynamixelController:
         """現在の速度を取得します。"""
         return self._read_4byte(
             motor_id,
-            self.motors[motor_id].params.param.ADDR_PRESENT_VELOCITY,
+            self.motors[motor_id].dynamixel_params.param.ADDR_PRESENT_VELOCITY,
         )
 
     def pulse_to_radian(self, pulse: int, pulse_per_revolution: int) -> float:
@@ -231,26 +232,28 @@ class DynamixelController:
     def set_goal_position_rad(self, motor_id: int, position_rad: float) -> bool:
         """目標位置をradian値で設定します."""
         pulse_position = self.radian_to_pulse(
-            position_rad, self.motors[motor_id].params.param.PULSE_PER_REVOLUTION
+            position_rad,
+            self.motors[motor_id].dynamixel_params.param.PULSE_PER_REVOLUTION,
         )
         logger.info(
             f"Setting goal position to {position_rad:.3f} rad ({pulse_position} pulse) for motor ID {motor_id}"
         )
         return self._write_4byte(
             motor_id,
-            self.motors[motor_id].params.param.ADDR_GOAL_POSITION,
-            pulse_position,
+            self.motors[motor_id].dynamixel_params.param.ADDR_GOAL_POSITION,
+            pulse_position + self.motors[motor_id].control_params.offset,
         )
 
     def get_present_position_rad(self, motor_id: int) -> tuple[float, bool]:
         """現在の位置をradian値で取得します."""
         pulse_position, success = self._read_4byte(
             motor_id,
-            self.motors[motor_id].params.param.ADDR_PRESENT_POSITION,
+            self.motors[motor_id].dynamixel_params.param.ADDR_PRESENT_POSITION,
         )
         if success:
             radian_position = self.pulse_to_radian(
-                pulse_position, self.motors[motor_id].params.param.PULSE_PER_REVOLUTION
+                pulse_position - self.motors[motor_id].control_params.offset,
+                self.motors[motor_id].dynamixel_params.param.PULSE_PER_REVOLUTION,
             )
             return radian_position, True
         return 0.0, False

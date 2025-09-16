@@ -1,7 +1,7 @@
 import math
 import time
 
-from src.constants import DynamixelLimits, DynamixelSeries, OperatingMode
+from src.constants import ControlParams, DynamixelSeries, OperatingMode
 from src.dynamixel import Dynamixel, DynamixelController
 
 # --- 設定項目 ---
@@ -18,17 +18,11 @@ MOTOR_IDS = [
 def create_dynamixel_motors() -> list[Dynamixel]:
     """4つのDynamixelモーターオブジェクトを作成します。"""
     # 基本的な制限値を設定（必要に応じて調整してください）
-    limits = DynamixelLimits(
-        max_pwm=885,
-        max_current=1193,
-        max_velocity=1000,
-        max_position=4095,
-        min_position=0,
-    )
+    param = ControlParams(max_position=4095, min_position=0, offset=int(4096 / 2))
 
     motors = []
     for motor_id in MOTOR_IDS:
-        motor = Dynamixel(series=DynamixelSeries.XM430_W350, id=motor_id, limits=limits)
+        motor = Dynamixel(series=DynamixelSeries.XM430_W350, id=motor_id, param=param)
         motors.append(motor)
 
     return motors
