@@ -44,6 +44,19 @@ class Param:
     PULSE_PER_REVOLUTION = 4096  # 1回転あたりのパルス数
 
 
+class OperatingMode(enum.Enum):
+    """
+    Dynamixelのオペレーティングモード
+    """
+
+    CURRENT_CONTROL = 0
+    VELOCITY_CONTROL = 1
+    POSITION_CONTROL = 3
+    EXTENDED_POSITION_CONTROL = 4
+    CURRENT_BASED_POSITION_CONTROL = 5
+    PWM_CONTROL = 16
+
+
 @dataclass
 class ControlParams:
     """Dynamixelモーターの制御パラメータ"""
@@ -53,6 +66,7 @@ class ControlParams:
     min_position: int = 0
 
     # 制御パラメータ
+    ctrl_mode: OperatingMode = OperatingMode.POSITION_CONTROL
     offset: int = 0  # オフセット値（デフォルトは0）
 
 
@@ -74,34 +88,14 @@ class DynamixelParams:
             raise ValueError("Unsupported Dynamixel series")
 
 
-class OperatingMode(enum.Enum):
-    """
-    Dynamixelのオペレーティングモード
-    """
+class ProtocolVersion(enum.Enum):
+    """Dynamixelのプロトコルバージョン"""
 
-    CURRENT_CONTROL = 0
-    VELOCITY_CONTROL = 1
-    POSITION_CONTROL = 3
-    EXTENDED_POSITION_CONTROL = 4
-    CURRENT_BASED_POSITION_CONTROL = 5
-    PWM_CONTROL = 16
+    V1_0 = 1.0
+    V2_0 = 2.0
 
 
-# --- Protocol Constants ---
-PROTOCOL_VERSION = 2.0
-BAUDRATE = 57600
+class Baudrate(enum.Enum):
+    """Dynamixelの通信速度（ボーレート）"""
 
-# --- Torque Constants ---
-TORQUE_ENABLE = 1
-TORQUE_DISABLE = 0
-
-# --- Position Constants ---
-DXL_MINIMUM_POSITION_VALUE = 1000
-DXL_MAXIMUM_POSITION_VALUE = 3000
-DXL_MOVING_STATUS_THRESHOLD = 20
-
-# --- Default Limits (for safe sample codes) ---
-# XM430-W350のPWMリミットの初期値は885
-SAFE_PWM_VALUE = 150
-# XM430-W350の電流リミットの初期値は1193 (約3.2A)
-SAFE_CURRENT_VALUE = 40  # 約108mAに相当 (40 * 2.69mA)
+    BAUD_57600 = 57600

@@ -6,14 +6,12 @@ from typing import Any
 from dynamixel_sdk import PacketHandler, PortHandler
 
 from src.constants import (
-    BAUDRATE,
-    PROTOCOL_VERSION,
-    TORQUE_DISABLE,
-    TORQUE_ENABLE,
+    Baudrate,
     ControlParams,
     DynamixelParams,
     DynamixelSeries,
     OperatingMode,
+    ProtocolVersion,
 )
 
 # Logger configuration
@@ -38,24 +36,22 @@ class DynamixelController:
         self,
         port: str,
         motors: list[Dynamixel],
-        operating_mode: OperatingMode = OperatingMode.POSITION_CONTROL,
-        protocol_version: float = PROTOCOL_VERSION,
-        baudrate: int = BAUDRATE,
+        protocol_version: ProtocolVersion = ProtocolVersion.V2_0,
+        baudrate: Baudrate = Baudrate.BAUD_57600,
     ):
         self.port = port
         self.motors = {motor.id: motor for motor in motors}  # IDをキーとする辞書
-        self.operating_mode = operating_mode
         self.portHandler = PortHandler(self.port)
         self.packetHandler = PacketHandler(protocol_version)
         self.baudrate = baudrate
 
     def connect(self) -> bool:
         """シリアルポートを開き、全てのモーターとの接続を確認します。"""
-        logger.info(f"Connecting to port {self.port} at {self.baudrate} bps...")
+        logger.info(f"Connecting to port {self.port} at {self.baudrate.value} bps...")
         if not self.portHandler.openPort():
             logger.error("Failed to open the port.")
             return False
-        if not self.portHandler.setBaudRate(self.baudrate):
+        if not self.portHandler.setBaudRate(self.baudrate.value):
             logger.error("Failed to change the baudrate.")
             return False
 
@@ -175,7 +171,7 @@ class DynamixelController:
         return self._write_1byte(
             motor_id,
             self.motors[motor_id].dynamixel_params.param.ADDR_TORQUE_ENABLE,
-            TORQUE_ENABLE,
+            self.motors[motor_id].dynamixel_params.param.TORQUE_ENABLE,
         )
 
     def disable_torque(self, motor_id: int) -> bool:
@@ -184,7 +180,7 @@ class DynamixelController:
         return self._write_1byte(
             motor_id,
             self.motors[motor_id].dynamixel_params.param.ADDR_TORQUE_ENABLE,
-            TORQUE_DISABLE,
+            self.motors[motor_id].dynamixel_params.param.TORQUE_DISABLE,
         )
 
     def set_goal_position(self, motor_id: int, position: int) -> bool:
@@ -265,10 +261,12 @@ class DynamixelController:
 
         # 全てのモーターに対してオペレーティングモードを設定してトルクを有効化
         for motor_id in self.motors.keys():
-            if not self.set_operating_mode(motor_id, self.operating_mode):
+            if not self.set_operating_mode(
+                motor_id, self.motors[motor_id].control_params.ctrl_mode
+            ):
                 self.disconnect()
                 raise IOError(
-                    f"Failed to set operating mode to {self.operating_mode.name} for motor ID {motor_id}."
+                    f"Failed to set operating mode to {self.motors[motor_id].control_params.ctrl_mode.name} for motor ID {motor_id}."
                 )
             if not self.enable_torque(motor_id):
                 self.disconnect()
@@ -281,7 +279,10 @@ class DynamixelController:
 
         # 全てのモーターを安全に停止させる
         for motor_id in self.motors.keys():
-            if self.operating_mode == OperatingMode.VELOCITY_CONTROL:
+            if (
+                self.motors[motor_id].control_params.ctrl_mode
+                == OperatingMode.VELOCITY_CONTROL
+            ):
                 self.set_goal_velocity(motor_id, 0)
 
         time.sleep(0.2)  # 停止命令が反映されるのを待つ

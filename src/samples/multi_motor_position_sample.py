@@ -1,14 +1,20 @@
 import math
 import time
 
-from src.constants import ControlParams, DynamixelSeries, OperatingMode
+from src.constants import (
+    Baudrate,
+    ControlParams,
+    DynamixelSeries,
+    OperatingMode,
+    ProtocolVersion,
+)
 from src.dynamixel import Dynamixel, DynamixelController
 
 # --- 設定項目 ---
 DEVICENAME = "COM7"
 MOTOR_IDS = [
-    # 5,
-    # 6,
+    5,
+    6,
     7,
     8,
 ]  # 制御する4つのモーターID
@@ -18,7 +24,12 @@ MOTOR_IDS = [
 def create_dynamixel_motors() -> list[Dynamixel]:
     """4つのDynamixelモーターオブジェクトを作成します。"""
     # 基本的な制限値を設定（必要に応じて調整してください）
-    param = ControlParams(max_position=4095, min_position=0, offset=int(4096 / 2))
+    param = ControlParams(
+        max_position=4095,
+        min_position=0,
+        ctrl_mode=OperatingMode.POSITION_CONTROL,
+        offset=int(4096 / 2),
+    )
 
     motors = []
     for motor_id in MOTOR_IDS:
@@ -42,7 +53,8 @@ def main() -> None:
         with DynamixelController(
             port=DEVICENAME,
             motors=motors,
-            operating_mode=OperatingMode.POSITION_CONTROL,
+            baudrate=Baudrate.BAUD_57600,
+            protocol_version=ProtocolVersion.V2_0,
         ) as controller:
 
             print("✅ Connection successful. All motors are ready to move.")
