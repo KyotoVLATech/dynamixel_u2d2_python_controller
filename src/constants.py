@@ -53,8 +53,6 @@ class DynamixelLimits:
     max_velocity: int
     max_position: int
     min_position: int
-    pulse_per_revolution: int
-    max_pulse: int
 
 
 class DynamixelParams:
@@ -65,7 +63,7 @@ class DynamixelParams:
         # 他の初期化コード
 
     @property
-    def control_table(self) -> Param:
+    def param(self) -> Param:
         """Dynamixelシリーズに応じたコントロールテーブルを返す"""
         if self.series == DynamixelSeries.XM430_W350:
             return Param()
