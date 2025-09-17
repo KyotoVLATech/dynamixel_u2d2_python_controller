@@ -43,6 +43,10 @@ class Param:
     RESOLUTION = 4096  # 0-4095 (12-bit)
     PULSE_PER_REVOLUTION = 4096  # 1回転あたりのパルス数
 
+    # Current conversion parameters
+    CURRENT_UNIT = 2.69  # mA per unit (XM430-W350)
+    MAX_CURRENT = 1193  # mA (maximum current)
+
 
 class OperatingMode(enum.Enum):
     """
