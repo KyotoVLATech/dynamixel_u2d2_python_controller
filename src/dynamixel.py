@@ -542,45 +542,25 @@ class DynamixelController:
         self, goals: dict[int, tuple[int, int]]
     ) -> bool:
         """
-        複数のモーターに「目標位置」と「目標電流」をBulkWriteで一斉送信します。
+        複数のモーターに「目標位置」と「目標電流」を一斉送信します。
         goals: { motor_id: (position, current) }
+
+        注意: ADDR_GOAL_CURRENTとADDR_GOAL_POSITIONは連続していないため、
+        2回に分けてSyncWriteで送信します。
         """
-        self.groupBulkWrite.clearParam()
-
-        for motor_id, (position, current) in goals.items():
-            if motor_id not in self.motors:
-                continue
-
-            # 1. 目標位置 (4byte) を追加
-            offset = self.motors[motor_id].control_params.offset
-            pos_with_offset = position + offset
-            pos_bytes = int_to_4byte_list(pos_with_offset)
-            if not self.groupBulkWrite.addParam(
-                motor_id, self.param.ADDR_GOAL_POSITION, 4, pos_bytes
-            ):
-                logger.error(
-                    f"Failed to add Goal Position param for motor ID {motor_id}"
-                )
-                return False
-
-            # 2. 目標電流 (2byte) を追加
-            current_bytes = int_to_2byte_list(current)
-            if not self.groupBulkWrite.addParam(
-                motor_id, self.param.ADDR_GOAL_CURRENT, 2, current_bytes
-            ):
-                logger.error(
-                    f"Failed to add Goal Current param for motor ID {motor_id}"
-                )
-                return False
-
-        # txPacketはブロッキングI/Oなので、別スレッドで実行
-        dxl_comm_result = await asyncio.to_thread(self.groupBulkWrite.txPacket)
-
-        if dxl_comm_result != 0:
-            logger.error(self.packetHandler.getTxRxResult(dxl_comm_result))
+        # 1. 先に目標電流を設定
+        currents = {motor_id: current for motor_id, (_, current) in goals.items()}
+        if not await self.set_goal_currents_async(currents):
+            logger.error("Failed to set goal currents")
             return False
 
-        logger.info(f"BulkWrite goals for {len(goals)} motors.")
+        # 2. 次に目標位置を設定
+        positions = {motor_id: position for motor_id, (position, _) in goals.items()}
+        if not await self.set_goal_positions_async(positions):
+            logger.error("Failed to set goal positions")
+            return False
+
+        logger.info(f"Set position and current goals for {len(goals)} motors.")
         return True
 
     async def set_position_and_current_goals_rad_async(
