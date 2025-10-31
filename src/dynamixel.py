@@ -583,6 +583,30 @@ class DynamixelController:
         logger.info(f"BulkWrite goals for {len(goals)} motors.")
         return True
 
+    async def set_position_and_current_goals_rad_async(
+        self, goals: dict[int, tuple[float, int]]
+    ) -> bool:
+        """
+        複数のモーターに「目標位置(radian)」と「目標電流」をBulkWriteで一斉送信します。
+        goals: { motor_id: (position_rad, current) }
+        """
+        # ラジアン値をパルス値に変換
+        pulse_goals = {}
+        for motor_id, (position_rad, current) in goals.items():
+            if motor_id not in self.motors:
+                continue
+            pulse_position = self.radian_to_pulse(
+                position_rad,
+                self.motors[motor_id].dynamixel_params.param.PULSE_PER_REVOLUTION,
+            )
+            pulse_goals[motor_id] = (pulse_position, current)
+            logger.info(
+                f"Motor ID {motor_id}: {position_rad:.3f} rad -> {pulse_position} pulse, current: {current} units"
+            )
+
+        # パルス値を使って既存のメソッドを呼び出す
+        return await self.set_position_and_current_goals_async(pulse_goals)
+
     # 非同期接続・切断メソッド
 
     async def connect_async(self) -> bool:
