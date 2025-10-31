@@ -269,6 +269,49 @@ class DynamixelController:
             self.motors[motor_id].dynamixel_params.param.ADDR_PRESENT_VELOCITY,
         )
 
+    def set_goal_current(self, motor_id: int, current: int) -> bool:
+        """目標電流を設定します。（単位：Dynamixel内部単位）"""
+        logger.info(f"Setting goal current to {current} for motor ID {motor_id}")
+        return self._write_2byte(
+            motor_id,
+            self.motors[motor_id].dynamixel_params.param.ADDR_GOAL_CURRENT,
+            current,
+        )
+
+    def get_present_current(self, motor_id: int) -> tuple[int, bool]:
+        """現在の電流を取得します。（単位：Dynamixel内部単位）"""
+        return self._read_2byte(
+            motor_id,
+            self.motors[motor_id].dynamixel_params.param.ADDR_PRESENT_CURRENT,
+        )
+
+    def set_goal_current_ma(self, motor_id: int, current_ma: float) -> bool:
+        """目標電流をmA単位で設定します。"""
+        current_unit = int(
+            current_ma / self.motors[motor_id].dynamixel_params.param.CURRENT_UNIT
+        )
+        logger.info(
+            f"Setting goal current to {current_ma:.1f} mA ({current_unit} units) for motor ID {motor_id}"
+        )
+        return self._write_2byte(
+            motor_id,
+            self.motors[motor_id].dynamixel_params.param.ADDR_GOAL_CURRENT,
+            current_unit,
+        )
+
+    def get_present_current_ma(self, motor_id: int) -> tuple[float, bool]:
+        """現在の電流をmA単位で取得します。"""
+        current_unit, success = self._read_2byte(
+            motor_id,
+            self.motors[motor_id].dynamixel_params.param.ADDR_PRESENT_CURRENT,
+        )
+        if success:
+            current_ma = (
+                current_unit * self.motors[motor_id].dynamixel_params.param.CURRENT_UNIT
+            )
+            return current_ma, True
+        return 0.0, False
+
     def pulse_to_radian(self, pulse: int, pulse_per_revolution: int) -> float:
         """パルス値をradian値に変換します."""
         return (pulse / pulse_per_revolution) * 2 * 3.14159265359
