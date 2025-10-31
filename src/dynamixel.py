@@ -1,9 +1,9 @@
+import asyncio
 import logging
-import time
 from logging import Formatter, StreamHandler, getLogger
 from typing import Any
 
-from dynamixel_sdk import PacketHandler, PortHandler
+from dynamixel_sdk import GroupSyncRead, GroupSyncWrite, PacketHandler, PortHandler
 
 from .constants import (
     Baudrate,
@@ -24,6 +24,32 @@ stream_handler.setFormatter(handler_format)
 logger.addHandler(stream_handler)
 
 
+# Byte conversion helper functions
+def int_to_1byte(value: int) -> list[int]:
+    """1バイトの整数をバイト配列に変換します。"""
+    return [value & 0xFF]
+
+
+def int_to_4byte_list(value: int) -> list[int]:
+    """4バイトの整数をバイト配列に変換します (SDKのサンプルに準拠)。"""
+    # 負の値を32bit符号なし整数として扱う
+    if value < 0:
+        value += 4294967296
+    return [
+        value & 0xFF,
+        (value >> 8) & 0xFF,
+        (value >> 16) & 0xFF,
+        (value >> 24) & 0xFF,
+    ]
+
+
+def bytes_to_4byte_int(value_bytes: bytes) -> int:
+    """4バイトのバイト配列を符号付き整数に変換します。"""
+    # Python 3.2+
+    value = int.from_bytes(value_bytes, byteorder="little", signed=True)
+    return value
+
+
 class Dynamixel:
     def __init__(self, series: DynamixelSeries, id: int, param: ControlParams):
         self.dynamixel_params: DynamixelParams = DynamixelParams(series)
@@ -42,8 +68,35 @@ class DynamixelController:
         self.port = port
         self.motors = {motor.id: motor for motor in motors}  # IDをキーとする辞書
         self.portHandler = PortHandler(self.port)
-        self.packetHandler = PacketHandler(protocol_version)
+        self.protocol_version = protocol_version.value
+        self.packetHandler = PacketHandler(self.protocol_version)
         self.baudrate = baudrate
+
+        # Group ハンドラの初期化
+        if not motors:
+            raise ValueError("Motor list cannot be empty.")
+
+        # 全モーター共通のパラメータを取得 (最初のモーターを代表とする)
+        param = motors[0].dynamixel_params.param
+        self.param = param
+
+        # 目標位置 (4byte) のための GroupSyncWrite
+        self.groupWriteGoalPosition = GroupSyncWrite(
+            self.portHandler, self.packetHandler, param.ADDR_GOAL_POSITION, 4
+        )
+        # 目標速度 (4byte) のための GroupSyncWrite
+        self.groupWriteGoalVelocity = GroupSyncWrite(
+            self.portHandler, self.packetHandler, param.ADDR_GOAL_VELOCITY, 4
+        )
+        # トルク有効 (1byte) のための GroupSyncWrite
+        self.groupWriteTorqueEnable = GroupSyncWrite(
+            self.portHandler, self.packetHandler, param.ADDR_TORQUE_ENABLE, 1
+        )
+
+        # 現在位置 (4byte) のための GroupSyncRead
+        self.groupReadPresentPosition = GroupSyncRead(
+            self.portHandler, self.packetHandler, param.ADDR_PRESENT_POSITION, 4
+        )
 
     def connect(self) -> bool:
         """シリアルポートを開き、全てのモーターとの接続を確認します。"""
@@ -254,42 +307,197 @@ class DynamixelController:
             return radian_position, True
         return 0.0, False
 
-    def __enter__(self) -> 'DynamixelController':
+    # 非同期・一斉送受信メソッド
+
+    async def set_goal_positions_async(self, positions: dict[int, int]) -> bool:
+        """複数のモーターに目標位置(パルス値)を一斉送信します。"""
+        self.groupWriteGoalPosition.clearParam()
+        for motor_id, position in positions.items():
+            if motor_id not in self.motors:
+                logger.warning(f"Motor ID {motor_id} not in controller.")
+                continue
+
+            offset = self.motors[motor_id].control_params.offset
+            value_with_offset = position + offset
+            param_bytes = int_to_4byte_list(value_with_offset)
+
+            if not self.groupWriteGoalPosition.addParam(motor_id, param_bytes):
+                logger.error(f"Failed to add param for motor ID {motor_id}")
+                return False
+
+        # txPacketはブロッキングI/Oなので、別スレッドで実行
+        dxl_comm_result = await asyncio.to_thread(self.groupWriteGoalPosition.txPacket)
+
+        if dxl_comm_result != 0:
+            logger.error(self.packetHandler.getTxRxResult(dxl_comm_result))
+            return False
+
+        logger.info(f"Set goal positions for {len(positions)} motors.")
+        return True
+
+    async def get_present_positions_async(self) -> dict[int, int | None]:
+        """複数のモーターの現在位置(パルス値)を一斉受信します。"""
+        self.groupReadPresentPosition.clearParam()
+        motor_ids = list(self.motors.keys())
+        for motor_id in motor_ids:
+            if not self.groupReadPresentPosition.addParam(motor_id):
+                logger.error(f"Failed to add param for motor ID {motor_id}")
+                return {mid: None for mid in motor_ids}
+
+        # txRxPacketはブロッキングI/Oなので、別スレッドで実行
+        dxl_comm_result = await asyncio.to_thread(
+            self.groupReadPresentPosition.txRxPacket
+        )
+
+        if dxl_comm_result != 0:
+            logger.error(self.packetHandler.getTxRxResult(dxl_comm_result))
+            return {mid: None for mid in motor_ids}
+
+        results = {}
+        for motor_id in motor_ids:
+            # データが利用可能かチェック
+            if self.groupReadPresentPosition.isAvailable(
+                motor_id, self.param.ADDR_PRESENT_POSITION, 4
+            ):
+                # データを取得
+                raw_value = self.groupReadPresentPosition.getData(
+                    motor_id, self.param.ADDR_PRESENT_POSITION, 4
+                )
+                # 4バイトの生データを符号付き整数に変換
+                value = bytes_to_4byte_int(raw_value.to_bytes(4, "little"))
+
+                offset = self.motors[motor_id].control_params.offset
+                results[motor_id] = value - offset
+            else:
+                logger.warning(f"Failed to get data for motor ID {motor_id}")
+                results[motor_id] = None
+
+        return results
+
+    async def set_torque_enable_async(self, torques: dict[int, bool]) -> bool:
+        """複数のモーターのトルクON/OFFを一斉送信します。"""
+        self.groupWriteTorqueEnable.clearParam()
+        for motor_id, enable in torques.items():
+            if motor_id not in self.motors:
+                continue
+
+            value = self.param.TORQUE_ENABLE if enable else self.param.TORQUE_DISABLE
+            param_bytes = int_to_1byte(value)
+
+            if not self.groupWriteTorqueEnable.addParam(motor_id, param_bytes):
+                logger.error(f"Failed to add param for motor ID {motor_id}")
+                return False
+
+        dxl_comm_result = await asyncio.to_thread(self.groupWriteTorqueEnable.txPacket)
+
+        if dxl_comm_result != 0:
+            logger.error(self.packetHandler.getTxRxResult(dxl_comm_result))
+            return False
+
+        logger.info(f"Set torque enable for {len(torques)} motors.")
+        return True
+
+    async def set_goal_velocities_async(self, velocities: dict[int, int]) -> bool:
+        """複数のモーターに目標速度を一斉送信します。"""
+        self.groupWriteGoalVelocity.clearParam()
+        for motor_id, velocity in velocities.items():
+            if motor_id not in self.motors:
+                logger.warning(f"Motor ID {motor_id} not in controller.")
+                continue
+
+            param_bytes = int_to_4byte_list(velocity)
+
+            if not self.groupWriteGoalVelocity.addParam(motor_id, param_bytes):
+                logger.error(f"Failed to add param for motor ID {motor_id}")
+                return False
+
+        dxl_comm_result = await asyncio.to_thread(self.groupWriteGoalVelocity.txPacket)
+
+        if dxl_comm_result != 0:
+            logger.error(self.packetHandler.getTxRxResult(dxl_comm_result))
+            return False
+
+        logger.info(f"Set goal velocities for {len(velocities)} motors.")
+        return True
+
+    # 非同期接続・切断メソッド
+
+    async def connect_async(self) -> bool:
+        """接続処理を非同期化"""
+        logger.info(f"Connecting to port {self.port} at {self.baudrate.value} bps...")
+        if not await asyncio.to_thread(self.portHandler.openPort):
+            logger.error("Failed to open the port.")
+            return False
+        if not await asyncio.to_thread(
+            self.portHandler.setBaudRate, self.baudrate.value
+        ):
+            logger.error("Failed to change the baudrate.")
+            return False
+
+        # 接続確認 (ここは個別に実行)
+        for motor_id in self.motors.keys():
+            # _read_4byte はブロッキングなのでラップする
+            value, success = await asyncio.to_thread(
+                self._read_4byte,
+                motor_id,
+                self.param.ADDR_PRESENT_POSITION,
+            )
+            if not success:
+                logger.error(f"Failed to connect to motor ID {motor_id}")
+                return False
+            logger.info(f"Successfully connected to motor ID {motor_id}")
+
+        logger.info("Successfully connected to all motors.")
+        return True
+
+    async def disconnect_async(self) -> None:
+        """切断処理を非同期化"""
+        if self.portHandler.is_open:
+            await asyncio.to_thread(self.portHandler.closePort)
+            logger.info("Serial port closed.")
+
+    async def __aenter__(self) -> "DynamixelController":
         """with構文の開始時に接続と全モーターのトルクONを行います。"""
-        if not self.connect():
+        if not await self.connect_async():
             raise IOError("Failed to connect to Dynamixel.")
 
-        # 全てのモーターに対してオペレーティングモードを設定してトルクを有効化
+        # 全てのモーターに対してオペレーティングモードを設定 (一斉送信)
+        # (注: モード設定はトルクOFF中に行う必要があるため、トルクONの前に実行)
         for motor_id in self.motors.keys():
-            if not self.set_operating_mode(
-                motor_id, self.motors[motor_id].control_params.ctrl_mode
+            if not await asyncio.to_thread(
+                self.set_operating_mode,
+                motor_id,
+                self.motors[motor_id].control_params.ctrl_mode,
             ):
-                self.disconnect()
-                raise IOError(
-                    f"Failed to set operating mode to {self.motors[motor_id].control_params.ctrl_mode.name} for motor ID {motor_id}."
-                )
-            if not self.enable_torque(motor_id):
-                self.disconnect()
-                raise IOError(f"Failed to enable torque for motor ID {motor_id}.")
+                await self.disconnect_async()
+                raise IOError("Failed to set operating mode.")
+
+        # 全モーターのトルクを一斉に有効化
+        all_torque_on = {motor_id: True for motor_id in self.motors.keys()}
+        if not await self.set_torque_enable_async(all_torque_on):
+            await self.disconnect_async()
+            raise IOError("Failed to enable torque for all motors.")
+
+        logger.info("All motors torque enabled.")
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """with構文の終了時に全モーターを停止し、トルクOFFと切断を行います。"""
         logger.info("Safely shutting down...")
 
-        # 全てのモーターを安全に停止させる
-        for motor_id in self.motors.keys():
-            if (
-                self.motors[motor_id].control_params.ctrl_mode
-                == OperatingMode.VELOCITY_CONTROL
-            ):
-                self.set_goal_velocity(motor_id, 0)
+        # 速度制御モードのモーターがあれば、速度0を一斉送信
+        velocity_motors = {
+            motor_id: 0
+            for motor_id, motor in self.motors.items()
+            if motor.control_params.ctrl_mode == OperatingMode.VELOCITY_CONTROL
+        }
+        if velocity_motors:
+            await self.set_goal_velocities_async(velocity_motors)
+            await asyncio.sleep(0.2)
 
-        time.sleep(0.2)  # 停止命令が反映されるのを待つ
+        # 全てのモーターのトルクを一斉に無効化
+        all_torque_off = {motor_id: False for motor_id in self.motors.keys()}
+        await self.set_torque_enable_async(all_torque_off)
 
-        # 全てのモーターのトルクを無効化
-        for motor_id in self.motors.keys():
-            self.disable_torque(motor_id)
-
-        time.sleep(0.1)
-        self.disconnect()
+        await asyncio.sleep(0.1)
+        await self.disconnect_async()
